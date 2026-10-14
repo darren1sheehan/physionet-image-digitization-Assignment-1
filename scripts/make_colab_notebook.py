@@ -77,6 +77,10 @@ try:
 except Exception:
     from getpass import getpass
     os.environ["KAGGLE_API_TOKEN"] = getpass("Kaggle API token: ")
+# The Kaggle library reads the token from ~/.kaggle/access_token, not reliably from the environment
+import pathlib
+kdir = pathlib.Path.home() / ".kaggle"; kdir.mkdir(exist_ok=True)
+(kdir / "access_token").write_text(os.environ["KAGGLE_API_TOKEN"].strip()); (kdir / "access_token").chmod(0o600)
 """)
 
 code(r"""
@@ -90,8 +94,9 @@ code(r"""
 # Data: rectified images for the folds used, sparse masks, and ground truth for the validation fold (~38 GB, 10-20 min)
 %cd /content/repo
 folds = " ".join(str(f) for f in sorted(set(TRAIN_FOLDS + [VAL_FOLD])))
-!python scripts/prepare_data.py --folds {folds} --val-fold {VAL_FOLD}
+!python -u scripts/prepare_data.py --folds {folds} --val-fold {VAL_FOLD}
 !df -h /content | tail -1
+assert os.path.exists("data/train_folds_available.csv"), "data download failed - see the output above"
 """)
 
 code(r"""
