@@ -1,10 +1,13 @@
 """Trainer class for model training."""
+import csv
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
 import numpy as np
 import pandas as pd
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 from scipy import signal as scipy_signal
 from torch.amp import GradScaler, autocast
@@ -42,9 +45,14 @@ class Trainer:
         sample_to_sig_len: Optional[Dict] = None,
     ):
         self.model = model.to(device)
+        # Unwrapped model, for validation and checkpoints when training with DistributedDataParallel
+        self.raw_model = model.module if hasattr(model, "module") else model
+        self.distributed = dist.is_available() and dist.is_initialized()
+        self.is_main = not self.distributed or dist.get_rank() == 0
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.device = device
+        self.device_type = torch.device(device).type  # autocast wants "cuda", not "cuda:1"
         self.amp = amp
         self.gradient_accumulation_steps = gradient_accumulation_steps
         self.max_grad_norm = max_grad_norm
@@ -154,15 +162,17 @@ class Trainer:
         """
         self.model.train()
         self.current_epoch = epoch
+        if hasattr(train_loader.sampler, "set_epoch"):
+            train_loader.sampler.set_epoch(epoch)  # new shuffle each epoch with DistributedSampler
 
         total_loss = 0.0
         num_batches = 0
 
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch} [Train]")
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch} [Train]", disable=not self.is_main)
 
         for batch_idx, batch in enumerate(pbar):
             # Forward pass
-            with autocast(device_type=self.device, enabled=self.amp):
+            with autocast(device_type=self.device_type, enabled=self.amp):
                 output = self.model(batch)
                 loss = output["pixel_loss"]
 
@@ -210,6 +220,11 @@ class Trainer:
         ):
             self.scheduler.step()
 
+        if self.distributed:
+            totals = torch.tensor([total_loss, num_batches], dtype=torch.float64, device=self.device)
+            dist.all_reduce(totals)
+            total_loss, num_batches = totals.tolist()
+
         metrics = {
             "loss": total_loss / num_batches,
             "lr": self.optimizer.param_groups[0]["lr"],
@@ -244,11 +259,11 @@ class Trainer:
         # SNR tracking
         all_snr_ratios = []
 
-        pbar = tqdm(val_loader, desc=f"Epoch {epoch} [Val]")
+        pbar = tqdm(val_loader, desc=f"Epoch {epoch} [Val]", disable=not self.is_main)
 
         for batch in pbar:
-            with autocast(device_type=self.device, enabled=self.amp):
-                output = self.model(batch)
+            with autocast(device_type=self.device_type, enabled=self.amp):
+                output = self.raw_model(batch)
                 loss = output["pixel_loss"]
 
             total_loss += loss.item()
@@ -304,6 +319,14 @@ class Trainer:
                 }
             pbar.set_postfix(postfix)
 
+        # With DistributedSampler each process validated its own share of the images
+        if self.distributed:
+            gathered = [None] * dist.get_world_size()
+            dist.all_gather_object(gathered, (total_loss, num_batches, all_snr_ratios))
+            total_loss = sum(g[0] for g in gathered)
+            num_batches = sum(g[1] for g in gathered)
+            all_snr_ratios = [r for g in gathered for r in g[2]]
+
         metrics = {
             "loss": total_loss / num_batches,
         }
@@ -334,6 +357,9 @@ class Trainer:
         metric_for_best: str = "loss",
         higher_is_better: Optional[bool] = None,
         config: Optional[Dict] = None,
+        start_epoch: int = 0,
+        best_metric: Optional[float] = None,
+        max_hours: Optional[float] = None,
     ) -> Dict[str, float]:
         """Full training loop.
 
@@ -348,6 +374,10 @@ class Trainer:
             higher_is_better: Whether higher metric is better.
                               If None, automatically set based on metric_for_best.
             config: Configuration to save with checkpoint.
+            start_epoch: First epoch to run (when resuming from a checkpoint).
+            best_metric: Best metric so far (when resuming from a checkpoint).
+            max_hours: Stop after the epoch that would otherwise overrun this many hours of wall time, so
+                       a session with a time limit (e.g. Kaggle's 12 h) ends cleanly with last.pth saved.
 
         Returns:
             Dictionary with best metrics.
@@ -362,9 +392,15 @@ class Trainer:
             else:
                 higher_is_better = False
 
-        best_metric = float("-inf") if higher_is_better else float("inf")
+        if best_metric is None:
+            best_metric = float("-inf") if higher_is_better else float("inf")
 
-        for epoch in range(num_epochs):
+        history_path = save_dir / "history.csv"
+        fit_start = time.time()
+
+        for epoch in range(start_epoch, num_epochs):
+            epoch_start = time.time()
+
             # Train
             train_metrics = self.train_epoch(train_loader, epoch)
 
@@ -389,28 +425,43 @@ class Trainer:
 
             if is_best:
                 best_metric = current_metric
-                if save_best:
+                if save_best and self.is_main:
                     save_checkpoint(
                         path=save_dir / "best.pth",
-                        model=self.model,
+                        model=self.raw_model,
                         optimizer=self.optimizer,
                         scheduler=self.scheduler,
                         epoch=epoch,
                         best_score=best_metric,
                         config=config,
+                        scaler=self.scaler,
                     )
 
             # Save last
-            if save_last:
+            if save_last and self.is_main:
                 save_checkpoint(
                     path=save_dir / "last.pth",
-                    model=self.model,
+                    model=self.raw_model,
                     optimizer=self.optimizer,
                     scheduler=self.scheduler,
                     epoch=epoch,
                     best_score=best_metric,
                     config=config,
+                    scaler=self.scaler,
                 )
+
+            # Per-epoch history for training curves (appends, so it continues across resumed sessions)
+            epoch_minutes = (time.time() - epoch_start) / 60
+            if self.is_main:
+                is_new = not history_path.exists()
+                with open(history_path, "a", newline="") as f:
+                    writer = csv.writer(f)
+                    if is_new:
+                        writer.writerow(["epoch", "lr", "train_loss", "val_loss", "val_snr", "minutes"])
+                    writer.writerow([
+                        epoch, train_metrics["lr"], train_metrics["loss"], val_metrics["loss"],
+                        val_metrics.get("snr", ""), round(epoch_minutes, 2),
+                    ])
 
             # Print epoch summary
             summary = (
@@ -419,7 +470,20 @@ class Trainer:
             )
             if "snr" in val_metrics:
                 summary += f", val_snr={val_metrics['snr']:.2f}dB"
-            summary += f", best_{metric_for_best}={best_metric:.4f}"
-            print(summary)
+            summary += f", best_{metric_for_best}={best_metric:.4f}, {epoch_minutes:.1f} min"
+            if self.is_main:
+                print(summary, flush=True)
+
+            # Stop before the next epoch would overrun the time budget; rank 0 decides for everyone
+            if max_hours is not None and epoch + 1 < num_epochs:
+                elapsed_h = (time.time() - fit_start) / 3600
+                stop = torch.tensor(int(elapsed_h + epoch_minutes / 60 > max_hours), device=self.device)
+                if self.distributed:
+                    dist.broadcast(stop, src=0)
+                if stop.item():
+                    if self.is_main:
+                        print(f"Stopping after epoch {epoch} to stay within {max_hours} h; "
+                              f"resume from {save_dir / 'last.pth'}", flush=True)
+                    break
 
         return {"best_" + metric_for_best: best_metric}

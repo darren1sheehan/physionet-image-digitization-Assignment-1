@@ -104,6 +104,7 @@ def create_whole_dataloader(
     is_train: bool = True,
     num_workers: int = 4,
     pin_memory: bool = True,
+    sampler: Optional[torch.utils.data.Sampler] = None,
 ) -> torch.utils.data.DataLoader:
     """Create DataLoader for Whole Model.
 
@@ -115,6 +116,7 @@ def create_whole_dataloader(
         is_train: Whether this is training data.
         num_workers: Number of data loading workers.
         pin_memory: Whether to pin memory for faster GPU transfer.
+        sampler: Sampler to use instead of shuffling (e.g. DistributedSampler for multi-GPU).
 
     Returns:
         DataLoader instance.
@@ -130,7 +132,8 @@ def create_whole_dataloader(
     loader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=is_train,
+        shuffle=is_train and sampler is None,
+        sampler=sampler,
         num_workers=num_workers,
         pin_memory=pin_memory,
         drop_last=is_train,
