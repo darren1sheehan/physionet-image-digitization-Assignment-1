@@ -36,7 +36,9 @@ Mini-setup: train on folds 1-2 (about 3,500 images), validate on all of fold 0 (
 
 **Before running**: Runtime -> Change runtime type -> **T4 GPU** (or L4). Add your Kaggle API token as a Colab secret
 named `KAGGLE_API_TOKEN` (key icon in the left bar), or paste it when asked. Checkpoints, `history.csv` and the curves
-go to Google Drive, so a disconnected session can resume: just run all cells again with the same `RUN`.
+go to Google Drive if it can be mounted, and at the end to a private Kaggle dataset `darrensheehan/ecg-colab-<run>`
+(works in the VS Code Colab extension too). A disconnected session resumes: run all cells again with the same `RUN`.
+In VS Code the token is asked for in a password box if Colab secrets are not available.
 """)
 
 code(rf"""
@@ -102,6 +104,16 @@ print("train:", (mini["fold"] != VAL_FOLD).sum(), " val:", (mini["fold"] == VAL_
 """)
 
 code(r"""
+# Results are also kept in a private Kaggle dataset (works without Google Drive). If it already holds a
+# last.pth from an earlier session and OUT does not, fetch it so training resumes.
+import subprocess
+DS = "darrensheehan/ecg-colab-" + RUN.lower().replace("_", "-")
+if not os.path.exists(f"{OUT}/last.pth"):
+    r = subprocess.run(["kaggle", "datasets", "download", "-d", DS, "-p", OUT, "--unzip"], capture_output=True, text=True)
+    print("resume data from", DS, ":", "found" if os.path.exists(f"{OUT}/last.pth") else "none (starting from scratch)")
+""")
+
+code(r"""
 # Train (resumes from OUT/last.pth if an earlier session got that far)
 resume = ["--resume", f"{OUT}/last.pth"] if os.path.exists(f"{OUT}/last.pth") else []
 args = ["--config", "configs/whole_model.yaml", "--output_dir", OUT, *resume,
@@ -123,6 +135,25 @@ ax[0].plot(hist["epoch"], hist["train_loss"], "o-", label="train"); ax[0].plot(h
 ax[0].set(xlabel="epoch", ylabel="loss", title=f"{RUN}: loss"); ax[0].legend()
 ax[1].plot(hist["epoch"], hist["val_snr"], "o-"); ax[1].set(xlabel="epoch", ylabel="dB", title=f"{RUN}: validation SNR (fold {VAL_FOLD})")
 plt.tight_layout(); plt.savefig(f"{OUT}/curves.png", dpi=120); plt.show()
+""")
+
+code(r"""
+# Save the results to the private Kaggle dataset DS (new version if it exists). The weights can then be attached
+# to a Kaggle submission notebook, and a later session can resume from last.pth.
+import json, shutil
+up = "/content/upload"
+shutil.rmtree(up, ignore_errors=True); os.makedirs(up)
+for f in ("best.pth", "last.pth", "history.csv", "config.yaml", "curves.png"):
+    if os.path.exists(f"{OUT}/{f}"):
+        shutil.copy(f"{OUT}/{f}", up)
+json.dump({"title": f"ECG assignment Colab run {RUN}", "id": DS, "licenses": [{"name": "other"}]},
+          open(f"{up}/dataset-metadata.json", "w"))
+exists = subprocess.run(["kaggle", "datasets", "status", DS], capture_output=True, text=True).returncode == 0
+cmd = (["kaggle", "datasets", "version", "-p", up, "-m", f"{RUN}: {len(hist)} epochs"] if exists
+       else ["kaggle", "datasets", "create", "-p", up])
+r = subprocess.run(cmd, capture_output=True, text=True)
+print(r.stdout[-800:], r.stderr[-800:])
+print("results ->", f"https://www.kaggle.com/datasets/{DS}")
 """)
 
 nb = {"cells": cells, "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
