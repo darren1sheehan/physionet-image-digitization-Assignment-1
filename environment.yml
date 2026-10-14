@@ -1,0 +1,19 @@
+# Conda environment for this repo.
+#   conda env create -f environment.yml
+#   conda activate physionet-ecg
+#
+# On Windows, PyPI's torch wheel is CPU-only (fine for exploration / smoke tests).
+# On a Linux GPU machine the same file pulls the CUDA build of torch.
+name: physionet-ecg
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - -r requirements.txt
+      # notebook support for step-by-step exploration in VS Code / Jupyter
+      - ipykernel
+      - ipywidgets
+      # needed to run hengck23's Stage 0/1 code in notebooks/01_*
+      - connected-components-3d

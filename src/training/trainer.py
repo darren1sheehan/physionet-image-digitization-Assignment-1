@@ -162,7 +162,7 @@ class Trainer:
 
         for batch_idx, batch in enumerate(pbar):
             # Forward pass
-            with autocast(device_type=self.device):
+            with autocast(device_type=self.device, enabled=self.amp):
                 output = self.model(batch)
                 loss = output["pixel_loss"]
 
@@ -247,7 +247,7 @@ class Trainer:
         pbar = tqdm(val_loader, desc=f"Epoch {epoch} [Val]")
 
         for batch in pbar:
-            with autocast(device_type=self.device):
+            with autocast(device_type=self.device, enabled=self.amp):
                 output = self.model(batch)
                 loss = output["pixel_loss"]
 

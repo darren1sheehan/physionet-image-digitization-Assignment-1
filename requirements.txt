@@ -7,6 +7,9 @@ scipy>=1.10.0
 
 # Segmentation
 segmentation-models-pytorch>=0.3.3
+# timm>=1.0.29 rejects encoder names like "tu-timm/tf_efficientnet_b0.ns_jft_in1k"
+# (used in configs/ and in the author's released checkpoints)
+timm<1.0.29
 
 # Image processing
 opencv-python>=4.8.0

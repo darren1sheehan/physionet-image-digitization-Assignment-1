@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import Dataset
 
 from .mask_utils import load_sparse_mask
-from .transforms import apply_transform, get_train_transforms, get_val_transforms
+from .transforms import apply_transform, get_train_transforms, get_val_transforms, resize_rectified
 
 
 class WholeDataset(Dataset):
@@ -65,8 +65,8 @@ class WholeDataset(Dataset):
         if image is None:
             raise FileNotFoundError(f"Image not found: {image_path}")
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = cv2.resize(image, (5600, 1700),interpolation=cv2.INTER_LINEAR)
-        image = image[self.offset:1696]
+        image = resize_rectified(image)
+        image = image[self.offset:1696, :5600]
 
         # Load mask
         sample_id = str(row["id"])

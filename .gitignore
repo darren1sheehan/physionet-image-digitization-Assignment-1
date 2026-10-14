@@ -41,6 +41,11 @@ CLAUDE.md
 /data/
 /outputs/
 /wandb/
+/reference/
+kaggle.json
+
+# LaTeX build output
+/report/build/
 
 # OS
 .DS_Store

@@ -210,7 +210,8 @@ def main():
         optimizer=optimizer,
         scheduler=scheduler,
         device=device,
-        amp=config.training.get("amp", True),
+        # bf16 autocast on CPUs without native bf16 support is ~100x slower than fp32
+        amp=config.training.get("amp", device == "cuda"),
         gradient_accumulation_steps=config.training.get("gradient_accumulation_steps", 1),
         config=config,
         sample_to_sig_len=sample_to_sig_len,

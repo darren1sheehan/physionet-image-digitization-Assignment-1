@@ -2,7 +2,18 @@
 from typing import Optional
 
 import albumentations as A
+import cv2
 from albumentations.pytorch import ToTensorV2
+
+# Rectified pages are 1700 x 2200 and 10 s of ECG spans x=118..2080. Stretch so that
+# span is exactly 5000 px (= 500 Hz samples), matching the masks and the author's inference.
+X_SCALE = 5000 / (2080 - 118)
+RESIZED_W = int(2200 * X_SCALE) + 1  # 5607, cropped to 5600 by the datasets
+
+
+def resize_rectified(image):
+    """Resize a rectified RGB page to the mask frame (1700, RESIZED_W)."""
+    return cv2.resize(image, (RESIZED_W, 1700), interpolation=cv2.INTER_LINEAR)
 
 
 def get_train_transforms(
