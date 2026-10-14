@@ -29,7 +29,7 @@ changes **one** thing, so differences in validation SNR can be attributed to it:
 |---|---|
 | `mini_baseline` | none |
 | `M1` | training images resized as in the original repository (straight to 5600 px, 4-7 px drift from the masks) |
-| `M2` | grayscale augmentation on 20 % of training images (in the author's write-up, missing from his code) |
+| `M2` | grayscale augmentation, `A.ToGray(p=0.25)` as listed in the author's write-up but missing from his code |
 | `M3` | SNR-aware loss on the decoded signal, weight 0.1, added to his BCE (idea from the 11th place solution) |
 
 Mini-setup: train on folds 1-2 (about 3,500 images), validate on all of fold 0 (1,764 images), 6 epochs, seed 0.
@@ -48,7 +48,7 @@ MAX_HOURS = 20                   # stop cleanly before Colab's session limit; re
 OVERRIDES = {{
     "mini_baseline": [],
     "M1": ["data.resize_mode=legacy"],
-    "M2": ["data.grayscale_p=0.2"],
+    "M2": ["data.grayscale_p=0.25"],
     "M3": ["model.snr_loss_weight=0.1"],
 }}[RUN]
 REPO = "https://github.com/darren1sheehan/physionet-image-digitization-Assignment-1.git"

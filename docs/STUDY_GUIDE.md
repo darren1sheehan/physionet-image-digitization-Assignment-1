@@ -109,7 +109,7 @@ Geometry shared by configs, datasets and inference:
 | 3 | `Trainer` always enabled autocast, so CPU runs used bf16. That is ~125x slower than fp32 on this CPU (no native bf16) | Fixed: autocast follows `training.amp`, which defaults to on for CUDA and off for CPU |
 | 4 | Training resized rectified images to exactly 5600 px wide, but the masks and the author's inference use `x_scale = 5000/1962` (resize to 5607, crop to 5600). Measured image/mask drift was 0 px at the left edge and 4-7 px at the right | Fixed: `resize_rectified()` in `src/data/transforms.py` matches inference. Drift is now within ±1-2 px. A perfect mask gives 41-80 dB SNR against ground truth (lower for 256/512 Hz records) |
 | 5 | `predict.py` doesn't pass `df_synthesis` to the dataloader factories (TypeError) and always autocasts | Fix before using `predict.py` |
-| 6 | The write-up lists grayscale augmentation; `transforms.py` has none | Note |
+| 6 | The write-up lists `A.ToGray(p=0.25)`; `transforms.py` has none (all other augmentations match, see `docs/writeups/2nd_place_augmentation.md`) | Tried as modification M2 (`data.grayscale_p=0.25`) |
 | 7 | Without ground-truth CSVs, `metric_for_best=snr` falls back to val loss but keeps "higher is better", so `best.pth` would be the worst epoch | Use `training.metric_for_best=loss` until ground truth is present |
 | 8 | `SeriesDataset` builds float64 crops (`np.zeros` default dtype): about 8x the memory of uint8 per batch | Performance only |
 
