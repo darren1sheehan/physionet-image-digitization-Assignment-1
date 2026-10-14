@@ -27,6 +27,8 @@ data:
   mask_dir: data/mask_x5000_500hz_comp_synthesis
   ecg_dir: data/kaggle_ecg_csv
   num_synthesis_data: 0
+  resize_mode: inference   # legacy = original repo resize, for training images only (modification M1)
+  grayscale_p: 0.0         # probability of grayscale augmentation (modification M2)
 
 training:
   num_epochs: 50                                                                                                                                                                                   

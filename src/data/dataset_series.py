@@ -35,6 +35,8 @@ class SeriesDataset(Dataset):
         zero_mv_positions: Optional[List[int]] = None,
         transform=None,
         is_train: bool = True,
+        resize_mode: str = "inference",
+        grayscale_p: float = 0.0,
     ):
         self.df = df.reset_index(drop=True)
         self.df_synthesis = df_synthesis.reset_index(drop=True)
@@ -43,10 +45,11 @@ class SeriesDataset(Dataset):
         self.zero_mv = [703.5, 987.5, 1271.5, 1531.5]
         self.transform = transform
         self.is_train = is_train
+        self.resize_mode = resize_mode
 
         if transform is None:
             if is_train:
-                self.transform = get_train_transforms()
+                self.transform = get_train_transforms(grayscale_p=grayscale_p)
             else:
                 self.transform = get_val_transforms()
 
@@ -67,7 +70,7 @@ class SeriesDataset(Dataset):
         if image is None:
             raise FileNotFoundError(f"Image not found: {image_path}")
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = resize_rectified(image)
+        image = resize_rectified(image, self.resize_mode)
         image = image[:1696, :5600]
 
         # Load mask
@@ -143,6 +146,8 @@ def create_series_dataloader(
     num_workers: int = 4,
     pin_memory: bool = True,
     sampler: Optional[torch.utils.data.Sampler] = None,
+    resize_mode: str = "inference",
+    grayscale_p: float = 0.0,
 ) -> torch.utils.data.DataLoader:
     """Create DataLoader for Series Model.
 
@@ -155,6 +160,8 @@ def create_series_dataloader(
         num_workers: Number of data loading workers.
         pin_memory: Whether to pin memory for faster GPU transfer.
         sampler: Sampler to use instead of shuffling (e.g. DistributedSampler for multi-GPU).
+        resize_mode: "inference" (default) or "legacy" (original repository resize), see resize_rectified.
+        grayscale_p: Probability of grayscale augmentation (training only).
 
     Returns:
         DataLoader instance.
@@ -165,6 +172,8 @@ def create_series_dataloader(
         mask_dir=mask_dir,
         window_size=window_size,
         is_train=is_train,
+        resize_mode=resize_mode,
+        grayscale_p=grayscale_p,
     )
 
     loader = torch.utils.data.DataLoader(

@@ -9,6 +9,7 @@ model:
   encoder_weights: imagenet
   whole_decoder_depth: 4
   loss_weight: 20
+  snr_loss_weight: 0.0   # SNR-aware auxiliary loss on the decoded signal (modification M3); 0 = author's setup
   enable_checkpointing: True
 
 training:

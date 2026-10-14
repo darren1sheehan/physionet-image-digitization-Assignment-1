@@ -41,6 +41,8 @@ def create_model(config: Union[DictConfig, dict]) -> nn.Module:
             encoder_weights=model_cfg.get("encoder_weights", "imagenet"),
             whole_decoder_depth=model_cfg.get("whole_decoder_depth", 4),
             loss_weight=model_cfg.get("loss_weight", 10),
+            snr_loss_weight=model_cfg.get("snr_loss_weight", 0.0),
+            zero_mv=list(config.get("zero_mv")) if model_cfg.get("snr_loss_weight", 0.0) else None,
         )
     else:
         raise ValueError(f"Unknown model type: {model_type}. Use 'series' or 'whole'.")

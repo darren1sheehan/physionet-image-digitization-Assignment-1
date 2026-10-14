@@ -117,6 +117,8 @@ class Net(nn.Module):
         encoder_weights: Pretrained weights.
         whole_decoder_depth: Depth for CoordConv decoder (4 or 5).
         loss_weight: Positive class weight for BCE loss.
+        snr_loss_weight: Weight of the SNR-aware auxiliary loss (0 = off, the author's setup; modification M3).
+        zero_mv: Baseline (0 mV) row of each of the 4 series in the input frame, needed by the SNR loss.
     """
 
     def __init__(
@@ -126,6 +128,8 @@ class Net(nn.Module):
         whole_decoder_depth=4,
         loss_weight=10,
         pretrained=True,
+        snr_loss_weight=0.0,
+        zero_mv=None,
     ):
         super().__init__()
 
@@ -139,6 +143,7 @@ class Net(nn.Module):
         self.encoder_weights = encoder_weights
         self.whole_decoder_depth = whole_decoder_depth
         self.loss_weight = loss_weight
+        self.snr_loss_weight = snr_loss_weight
 
         self.decoder_channels_whole_4 = [256, 128, 64, 32]
         self.decoder_channels_whole_5 = [256, 128, 64, 32, 16]
@@ -147,6 +152,11 @@ class Net(nn.Module):
         self.register_buffer("D", torch.tensor(0))
         self.register_buffer("mean", torch.tensor([0.485, 0.456, 0.406]).reshape(1, 3, 1, 1))
         self.register_buffer("std", torch.tensor([0.229, 0.224, 0.225]).reshape(1, 3, 1, 1))
+        if snr_loss_weight > 0:
+            assert zero_mv is not None and len(zero_mv) == 4, "the SNR loss needs zero_mv"
+            # not persistent: checkpoints keep the author's keys and still load in his inference code
+            self.register_buffer("snr_zero_mv", torch.tensor(zero_mv, dtype=torch.float32).reshape(1, 4, 1),
+                                 persistent=False)
 
         self._build_whole_model(encoder_name, encoder_weights)
 
@@ -217,13 +227,36 @@ class Net(nn.Module):
         output = {}
 
         if "loss" in self.output_type:
+            target = batch["pixel"].to(device)
             output["pixel_loss"] = F.binary_cross_entropy_with_logits(
                 pixel,
-                batch["pixel"].to(device),
+                target,
                 pos_weight=torch.tensor([self.loss_weight]).to(device),
             )
+            if self.snr_loss_weight > 0:
+                output["pixel_loss"] = output["pixel_loss"] + self.snr_loss_weight * self.snr_loss(pixel, target)
 
         if "infer" in self.output_type:
             output["pixel"] = torch.sigmoid(pixel)
 
         return output
+
+    def snr_loss(self, logits, target):
+        """SNR-aware loss (M3): decode the signal as inference does and score it against the target signal.
+
+        Decoding: probability-weighted mean y per column. The target mask sums to 1 per column wherever there is
+        signal, so its weighted mean y is the true trace. Returns the mean over pages and rows of
+        log10(noise / signal) = -SNR_dB / 10, which keeps a constant push towards higher SNR at any level.
+        Signal is measured from each row's 0 mV baseline, in pixels (the mV scale cancels in the ratio).
+        """
+        with torch.autocast(device_type=logits.device.type, enabled=False):
+            p = torch.sigmoid(logits.float())
+            t = target.float()
+            y = torch.arange(p.shape[2], device=p.device, dtype=torch.float32).reshape(1, 1, -1, 1)
+            y_pred = (p * y).sum(2) / (p.sum(2) + 1e-8)  # (B, 4, W)
+            t_sum = t.sum(2)
+            y_true = (t * y).sum(2) / (t_sum + 1e-8)
+            valid = (t_sum > 0.5).float()  # columns that carry signal
+            signal = (((self.snr_zero_mv - y_true) ** 2) * valid).sum(-1)
+            noise = (((y_pred - y_true) ** 2) * valid).sum(-1)
+            return torch.log10((noise + 1e-6) / (signal + 1e-6)).mean()

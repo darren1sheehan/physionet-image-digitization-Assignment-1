@@ -86,6 +86,9 @@ def create_dataloaders(config, df_train, df_val, df_synthesis, world_size=1, ran
     batch_size = config.training.get("batch_size", 4)
     num_workers = config.get("num_workers", 4)
     mask_dir = config.data.get("mask_dir")
+    # M1: training images only; validation always uses the inference resize, as the submission does
+    resize_mode = config.data.get("resize_mode", "inference")
+    grayscale_p = config.data.get("grayscale_p", 0.0)  # M2
 
     train_sampler = val_sampler = None
     if world_size > 1:
@@ -107,6 +110,8 @@ def create_dataloaders(config, df_train, df_val, df_synthesis, world_size=1, ran
             is_train=True,
             num_workers=num_workers,
             sampler=train_sampler,
+            resize_mode=resize_mode,
+            grayscale_p=grayscale_p,
         )
         val_loader = create_series_dataloader(
             df=df_val,
@@ -129,6 +134,8 @@ def create_dataloaders(config, df_train, df_val, df_synthesis, world_size=1, ran
             is_train=True,
             num_workers=num_workers,
             sampler=train_sampler,
+            resize_mode=resize_mode,
+            grayscale_p=grayscale_p,
         )
         val_loader = create_whole_dataloader(
             df=df_val,

@@ -11,20 +11,31 @@ X_SCALE = 5000 / (2080 - 118)
 RESIZED_W = int(2200 * X_SCALE) + 1  # 5607, cropped to 5600 by the datasets
 
 
-def resize_rectified(image):
-    """Resize a rectified RGB page to the mask frame (1700, RESIZED_W)."""
+def resize_rectified(image, mode: str = "inference"):
+    """Resize a rectified RGB page to the mask frame.
+
+    mode="inference": (1700, RESIZED_W), matching the masks and the author's inference.
+    mode="legacy": straight to (1700, 5600) as in the original repository, which drifts 4-7 px from the masks
+    at the right edge; kept only to measure the effect of that drift (modification M1).
+    """
+    if mode == "legacy":
+        return cv2.resize(image, (5600, 1700), interpolation=cv2.INTER_LINEAR)
+    assert mode == "inference", f"unknown resize mode: {mode}"
     return cv2.resize(image, (RESIZED_W, 1700), interpolation=cv2.INTER_LINEAR)
 
 
 def get_train_transforms(
     height: int = 480,
     width: int = 5600,
+    grayscale_p: float = 0.0,
 ) -> A.Compose:
     """Get training data augmentation transforms.
 
     Args:
         height: Target height for resize.
         width: Target width for resize.
+        grayscale_p: Probability of converting an image to grayscale (3 channels kept). The author's write-up
+            lists grayscale augmentation but his code has none, so it is off by default (modification M2).
 
     Returns:
         Albumentations Compose object.
@@ -46,6 +57,8 @@ def get_train_transforms(
             p=0.1
         ),
     ]
+    if grayscale_p > 0:
+        transforms.append(A.ToGray(num_output_channels=3, p=grayscale_p))
 
     return A.Compose(transforms)
 
