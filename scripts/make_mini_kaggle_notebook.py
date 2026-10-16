@@ -119,7 +119,7 @@ plt.tight_layout(); plt.savefig(f"{OUT}/curves.png", dpi=120); plt.show()
 
 nb = {"cells": cells, "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
       "language_info": {"name": "python"}}, "nbformat": 4, "nbformat_minor": 4}
-slug = f"darren-sheehan-07-mini-{run.lower().replace('_', '-')}"
+slug = "darren-sheehan-07-mini-baseline" if run == "mini_baseline" else f"darren-sheehan-07-mini-{run.lower()}"
 out.mkdir(parents=True, exist_ok=True)
 (out / f"{slug}.ipynb").write_text(json.dumps(nb, indent=1), encoding="utf-8")
 meta = {
