@@ -1,0 +1,22 @@
+{
+  "id": "darrensheehan/darren-sheehan-08-postprocessing-evaluation",
+  "title": "Darren-Sheehan-08-postprocessing-evaluation",
+  "code_file": "darren-sheehan-08-postprocessing-evaluation.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "takashisomeya/physionet-rectified-images-fold0"
+  ],
+  "competition_sources": [
+    "physionet-ecg-image-digitization"
+  ],
+  "kernel_sources": [
+    "darrensheehan/darren-sheehan-03-baseline-training"
+  ],
+  "model_sources": []
+}
