@@ -10,6 +10,7 @@
   "enable_internet": true,
   "machine_shape": "NvidiaTeslaT4",
   "dataset_sources": [
+    "darrensheehan/ecg-r1-checkpoint",
     "takashisomeya/physionet-rectified-images-fold0",
     "takashisomeya/physionet-rectified-images-fold1",
     "takashisomeya/physionet-rectified-images-fold2",
