@@ -7,6 +7,10 @@ Every edit to the author's notebook is marked `CHANGED` in the generated code. O
                          best.pth is in the output of notebook K (e.g. darrensheehan/darren-sheehan-03-baseline-training)
     --p1                 add lead-consistency post-processing (P1): fuse the two lead II predictions, then enforce
                          II = I + III and aVR + aVL + aVF = 0 (ideas from the 1st and 3rd place solutions)
+    --post V             lead-consistency variant from src/evaluation/postprocess.py instead: p1b (offset-safe) or
+                         p1t (1st place thresholds)
+    --decoder D          decode probability maps with src/evaluation/postprocess.py's "parabolic" or "window"
+                         decoder (3rd place ideas) instead of the author's probability-weighted mean
 
 Always applied, because these notebooks are created from the command line rather than copied in the browser:
 the author's hard-coded /kaggle/input/<name> paths are redirected to links in /tmp (Kaggle now mounts inputs under
@@ -17,6 +21,7 @@ is installed from an attached wheel (internet must be off).
         notebooks/kaggle/05-author-ensemble-p1 --slug darren-sheehan-05-author-ensemble-p1 --p1
 """
 import argparse
+import sys
 import json
 from pathlib import Path
 
@@ -31,6 +36,8 @@ def parse_args():
     p.add_argument("--slug", required=True, help="Kaggle notebook slug, e.g. darren-sheehan-05-author-ensemble-p1")
     p.add_argument("--weights-kernel", default=None, help="notebook whose output holds whole_b0_baseline/best.pth")
     p.add_argument("--p1", action="store_true", help="add lead-consistency post-processing")
+    p.add_argument("--post", choices=["p1b", "p1t"], default=None, help="lead-consistency variant (see docstring)")
+    p.add_argument("--decoder", choices=["mean", "parabolic", "window"], default="mean")
     return p.parse_args()
 
 
@@ -158,6 +165,55 @@ P1_REPORT_NEW = P1_REPORT_OLD + (
 )
 
 
+# Numpy versions of src/evaluation/postprocess.py's decoders, for the author's pixel_to_series_exp
+DECODER_CELL = r"""
+# CHANGED: decoder DECODER_NAME (3rd place idea) replaces the author's probability-weighted mean over the whole column
+WINDOW = 3
+
+def pixel_to_series_exp(pixel, zero_mv, length):
+    _, H, W = pixel.shape
+    series = []
+    for j in [0, 1, 2, 3]:
+        p = pixel[j].astype(np.float64)
+        i = p.argmax(axis=0)
+        cols = np.arange(W)
+        if DECODER == "parabolic":
+            yc, yl, yr = p[i, cols], p[np.clip(i - 1, 0, H - 1), cols], p[np.clip(i + 1, 0, H - 1), cols]
+            denom = yl - 2 * yc + yr
+            delta = np.where(denom < -1e-8, (yl - yr) / (2 * np.where(denom < -1e-8, denom, -1)), 0.0)
+            y_exp = i + np.clip(delta, -1, 1)
+        else:  # window: weighted mean within +-WINDOW px of the argmax
+            idx = np.clip(i[None, :] + np.arange(-WINDOW, WINDOW + 1)[:, None], 0, H - 1)
+            w = p[idx, cols[None, :]]
+            y_exp = (w * idx).sum(axis=0) / (w.sum(axis=0) + 1e-8)
+        series.append(y_exp)
+    series = np.stack(series).astype(np.float32)
+    if length is not None and length != W:
+        series = np.stack([signal.resample(s, length).astype(np.float32) for s in series])
+    return series
+"""
+
+
+def post_function(name):
+    """Notebook code defining lead_consistency() as the chosen variant from src/evaluation/postprocess.py."""
+    import inspect
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from src.evaluation import postprocess
+    src = "\n\n".join(inspect.getsource(f) for f in (postprocess._split, getattr(postprocess, name)))
+    return (f"# CHANGED: lead consistency, variant {name} (src/evaluation/postprocess.py)\n"
+            "P1_STATS = []\n\n" + src + f"""
+
+def lead_consistency(series_by_lead, ii_short):
+    n, m = min(len(ii_short), len(series_by_lead['I'])), len(series_by_lead['aVR'])
+    def mismatch(s):
+        return (np.abs(s['II'][:n] - s['I'][:n] - s['III'][:n]).mean(),
+                np.abs(s['aVR'][:m] + s['aVL'][:m] + s['aVF'][:m]).mean())
+    out = {name}(series_by_lead, ii_short)
+    P1_STATS.append(mismatch(series_by_lead) + mismatch(out))
+    return {{k: np.asarray(v, dtype=np.float32) for k, v in out.items()}}
+""")
+
+
 def main():
     args = parse_args()
     nb = json.load(open(args.source_notebook, encoding="utf-8"))
@@ -193,7 +249,26 @@ def main():
     else:
         changes.append("**Weights**: the author's own 6-model ensemble (2 Whole + 4 Series models), unchanged.")
 
-    if args.p1:
+    if args.decoder != "mean":
+        i = find("def pixel_to_series_exp(")
+        cells.insert(i + 1, code(DECODER_CELL.replace("DECODER_NAME", args.decoder)
+                                 .replace("WINDOW = 3", f'DECODER = "{args.decoder}"\nWINDOW = 3')))
+        changes.append(f"**Decoder {args.decoder}** (3rd place idea): each column's signal position comes from the "
+                       f"probability peak ({'parabola through the peak and its neighbours' if args.decoder == 'parabolic' else 'weighted mean within 3 px of the peak'}) "
+                       f"instead of the author's weighted mean over the whole column.")
+
+    if args.post:
+        i = find("def make_submission(")
+        s = cells[i]["source"]
+        assert s.count(P1_CALL_OLD) == 1 and s.count(P1_REPORT_OLD) == 1
+        cells[i]["source"] = post_function(args.post) + "\n\n" + s.replace(P1_CALL_OLD, P1_CALL_NEW).replace(
+            P1_REPORT_OLD, P1_REPORT_NEW)
+        changes.append(f"**Lead consistency {args.post}**: "
+                       + ("offset-safe P1 (baselines matched before fusing; only the time-varying part of each "
+                          "mismatch is corrected)" if args.post == "p1b" else
+                          "1st place rules (fuse the two lead II predictions; enforce each identity only if its mean "
+                          "mismatch is below 0.01 mV)") + ".")
+    elif args.p1:
         i = find("def make_submission(")
         s = cells[i]["source"]
         assert s.count(P1_CALL_OLD) == 1 and s.count(P1_REPORT_OLD) == 1
