@@ -1,0 +1,25 @@
+{
+  "id": "darrensheehan/darren-sheehan-09-own-weights-window-p1b",
+  "title": "Darren-Sheehan-09-own-weights-window-p1b",
+  "code_file": "darren-sheehan-09-own-weights-window-p1b.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "dataset_sources": [
+    "hengck23/hengck23-demo-submit-physionet",
+    "takashisomeya/physionet-final-submission-models",
+    "darrensheehan/smp-wheel-0-5-0"
+  ],
+  "competition_sources": [
+    "physionet-ecg-image-digitization"
+  ],
+  "kernel_sources": [
+    "darrensheehan/darren-sheehan-03-baseline-training"
+  ],
+  "model_sources": [],
+  "docker_image": "gcr.io/kaggle-private-byod/python@sha256:7a9d2a6b13b3566aa6cc5a22447f3b3f99acf55dce44408deb90584b6d4b0dde",
+  "machine_shape": "NvidiaTeslaT4"
+}
