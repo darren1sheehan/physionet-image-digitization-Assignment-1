@@ -13,6 +13,8 @@
     "takashisomeya/physionet-rectified-images-fold0",
     "takashisomeya/physionet-rectified-images-fold1",
     "takashisomeya/physionet-rectified-images-fold2",
+    "takashisomeya/physionet-rectified-images-fold3",
+    "takashisomeya/physionet-rectified-images-fold4",
     "takashisomeya/physionet-comp-syn-mask-x5000-500hz"
   ],
   "competition_sources": [

@@ -2,8 +2,9 @@
 """Build a Kaggle notebook (07) that trains one mini-setup run for the training modifications.
 
 Same setup as the Colab mini-baseline (notebooks/colab/06_modifications_colab.ipynb): Whole model, EfficientNet-B0,
-the author's settings, train on folds 1-2, validate on all of fold 0, 6 epochs, seed 0, one GPU with batch size 4.
-Only the modification differs.
+the author's settings, R1's setup (train on folds 1-4, validate on all of fold 0, two GPUs, total batch 4) but
+6 epochs instead of 12, seed 0. Only the modification differs. (A first version trained on folds 1-2 on one GPU;
+its Colab pilot reached only about 1 dB validation SNR, too early in training for a meaningful comparison.)
 
     python scripts/make_mini_kaggle_notebook.py <commit> <run: mini_baseline|M1|M2|M3> <out_dir>
 """
@@ -43,9 +44,9 @@ md(f"""
 Assignment 1. The author's Whole model (EfficientNet-B0, his settings) trained in a small, fixed setup with **one**
 change: **{DESCRIPTION[run]}**.
 
-Mini-setup, the same for every run: train on folds 1-2 (3,519 images), validate on all of fold 0 (1,764 images),
-6 epochs, seed 0, one GPU, batch size 4. It matches the Colab mini-baseline (notebook 06), so the validation SNR of
-this run can be compared with it directly.
+Setup, the same for every run: R1's setup (notebook 03): train on folds 1-4 (7,028 images), validate on all of
+fold 0 (1,764 images), two GPUs with a total batch of 4, seed 0, but 6 epochs (cosine schedule over 6) instead of 12.
+The validation SNR of this run is compared with the mini-baseline trained the same way.
 """)
 
 code(rf"""
@@ -74,13 +75,13 @@ def find_dir(name):
             return Path(hits[0])
     raise FileNotFoundError(name)
 
-rect = {f: find_dir(f"rectified_fold{f}") for f in (0, 1, 2)}
+rect = {f: find_dir(f"rectified_fold{f}") for f in range(5)}
 mask_dir = find_dir("mask_x5000_500hz_comp_synthesis")
 comp_train = find_dir("train")
 
 os.chdir("/kaggle/working/repo")
 df = pd.read_csv("train_fold_with_synthesis.csv", dtype={"id": str, "type_id": str})
-mini = df[~df["is_synthesis"] & df["fold"].isin([0, 1, 2])].copy()
+mini = df[~df["is_synthesis"]].copy()
 mini["image_path"] = [str(rect[f] / Path(p).name) for f, p in zip(mini["fold"], mini["image_path"])]
 assert mini["image_path"].map(os.path.exists).all()
 mini.to_csv("/kaggle/working/mini_folds.csv", index=False)
@@ -93,13 +94,13 @@ print("train:", (mini["fold"] != 0).sum(), " val:", (mini["fold"] == 0).sum())
 """)
 
 code(r"""
-# Train on one GPU, as in the Colab mini-baseline
+# Train on both GPUs, as R1 (torchrun; training.batch_size=4 is the total over the GPUs)
 os.makedirs(OUT, exist_ok=True)
 args = ["--config", "configs/whole_model.yaml", "--output_dir", OUT,
         "data.csv_path=/kaggle/working/mini_folds.csv", f"data.mask_dir={mask_dir}", f"data.ecg_dir={ecg_dir}",
         "cv.val_fold=0", "wandb.enabled=false", f"training.num_epochs={EPOCHS}", "training.max_hours=11.0",
-        "num_workers=4", *OVERRIDES]
-cmd = " ".join(["CUDA_VISIBLE_DEVICES=0", "python", "train.py"] + args)
+        "num_workers=2", *OVERRIDES]
+cmd = " ".join(["torchrun", "--nproc_per_node=2", "train.py"] + args)
 print(cmd)
 !{cmd}
 """)
@@ -126,7 +127,7 @@ meta = {
     "id": f"darrensheehan/{slug}", "title": slug.replace("darren-sheehan-", "Darren-Sheehan-"),
     "code_file": f"{slug}.ipynb", "language": "python", "kernel_type": "notebook", "is_private": True,
     "enable_gpu": True, "enable_tpu": False, "enable_internet": True, "machine_shape": "NvidiaTeslaT4",
-    "dataset_sources": [f"takashisomeya/physionet-rectified-images-fold{f}" for f in (0, 1, 2)]
+    "dataset_sources": [f"takashisomeya/physionet-rectified-images-fold{f}" for f in range(5)]
                        + ["takashisomeya/physionet-comp-syn-mask-x5000-500hz"],
     "competition_sources": ["physionet-ecg-image-digitization"], "kernel_sources": [], "model_sources": [],
 }
